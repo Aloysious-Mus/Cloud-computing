@@ -152,10 +152,17 @@ PAGE_TEMPLATE = """
         .danger:hover {
             background: #dc2626;
         }
-        .edit {
+        .edit-link {
+            display: inline-block;
+            padding: 10px 14px;
+            border-radius: 8px;
             background: #14b8a6;
+            color: white;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
         }
-        .edit:hover {
+        .edit-link:hover {
             background: #0f766e;
         }
         table {
@@ -185,6 +192,7 @@ PAGE_TEMPLATE = """
             display: flex;
             gap: 8px;
             flex-wrap: wrap;
+            align-items: center;
         }
         .flash {
             padding: 12px;
@@ -217,7 +225,7 @@ PAGE_TEMPLATE = """
 <div class="container">
     <div class="card">
         <h1>University Timetable App</h1>
-        <p class="subtitle">Keep Track of your lectures.</p>
+        <p class="subtitle">A simple Flask + SQLAlchemy timetable manager ready for Railway deployment.</p>
 
         <div class="top-links">
             <a href="{{ url_for('home') }}">Home</a>
@@ -285,9 +293,7 @@ PAGE_TEMPLATE = """
                     <td>{{ entry.start_time }}</td>
                     <td>{{ entry.end_time }}</td>
                     <td class="actions">
-                        <a href="{{ url_for('edit_entry_page', entry_id=entry.id) }}">
-                            <button type="button" class="edit">Edit</button>
-                        </a>
+                        <a href="{{ url_for('edit_entry_page', entry_id=entry.id) }}" class="edit-link">Edit</a>
                         <form method="POST" action="{{ url_for('delete_entry', entry_id=entry.id) }}" style="display:inline;">
                             <button type="submit" class="danger" onclick="return confirm('Delete this entry?')">Delete</button>
                         </form>
@@ -346,13 +352,23 @@ def create_entry():
 
 @app.route("/edit/<int:entry_id>")
 def edit_entry_page(entry_id):
-    entry = TimetableEntry.query.get_or_404(entry_id)
+    entry = db.session.get(TimetableEntry, entry_id)
+
+    if not entry:
+        flash(f"Entry with ID {entry_id} was not found.")
+        return redirect(url_for("home"))
+
     entries = sorted_entries()
     return render_template_string(PAGE_TEMPLATE, entries=entries, edit_entry=entry)
 
 @app.route("/update/<int:entry_id>", methods=["POST"])
 def update_entry(entry_id):
-    entry = TimetableEntry.query.get_or_404(entry_id)
+    entry = db.session.get(TimetableEntry, entry_id)
+
+    if not entry:
+        flash(f"Entry with ID {entry_id} was not found.")
+        return redirect(url_for("home"))
+
     try:
         entry.course_name = request.form["course_name"]
         entry.lecturer = request.form["lecturer"]
@@ -371,7 +387,12 @@ def update_entry(entry_id):
 
 @app.route("/delete/<int:entry_id>", methods=["POST"])
 def delete_entry(entry_id):
-    entry = TimetableEntry.query.get_or_404(entry_id)
+    entry = db.session.get(TimetableEntry, entry_id)
+
+    if not entry:
+        flash(f"Entry with ID {entry_id} was not found.")
+        return redirect(url_for("home"))
+
     try:
         db.session.delete(entry)
         db.session.commit()
@@ -410,7 +431,9 @@ def api_list_entries():
 
 @app.route("/api/timetable/<int:entry_id>", methods=["GET"])
 def api_get_entry(entry_id):
-    entry = TimetableEntry.query.get_or_404(entry_id)
+    entry = db.session.get(TimetableEntry, entry_id)
+    if not entry:
+        return jsonify({"error": "Resource not found"}), 404
     return jsonify(entry.to_dict()), 200
 
 @app.route("/api/timetable", methods=["POST"])
@@ -443,7 +466,11 @@ def api_create_entry():
 
 @app.route("/api/timetable/<int:entry_id>", methods=["PUT"])
 def api_update_entry(entry_id):
-    entry = TimetableEntry.query.get_or_404(entry_id)
+    entry = db.session.get(TimetableEntry, entry_id)
+
+    if not entry:
+        return jsonify({"error": "Resource not found"}), 404
+
     data = request.get_json() or {}
 
     try:
@@ -464,7 +491,11 @@ def api_update_entry(entry_id):
 
 @app.route("/api/timetable/<int:entry_id>", methods=["DELETE"])
 def api_delete_entry(entry_id):
-    entry = TimetableEntry.query.get_or_404(entry_id)
+    entry = db.session.get(TimetableEntry, entry_id)
+
+    if not entry:
+        return jsonify({"error": "Resource not found"}), 404
+
     try:
         db.session.delete(entry)
         db.session.commit()
@@ -480,11 +511,19 @@ def api_delete_entry(entry_id):
 # -----------------------------
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({"error": "Resource not found"}), 404
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Resource not found"}), 404
+
+    flash("Page not found.")
+    return redirect(url_for("home"))
 
 @app.errorhandler(500)
 def internal_error(error):
-    return jsonify({"error": "Internal server error"}), 500
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Internal server error"}), 500
+
+    flash("An internal server error occurred.")
+    return redirect(url_for("home"))
 
 # -----------------------------
 # Run
